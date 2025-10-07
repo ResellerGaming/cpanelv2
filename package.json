@@ -1,0 +1,10 @@
+{
+  "name": "cpanel-resellergaming",
+  "version": "2.0.0",
+  "scripts": {
+    "dev": "vercel dev"
+  },
+  "dependencies": {
+    "axios": "^1.6.0"
+  }
+}
