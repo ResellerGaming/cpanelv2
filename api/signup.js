@@ -1,47 +1,49 @@
-const fs = require('fs');
-const path = require('path');
-const { githubToken, repo, branch } = require('../settings');
 const axios = require('axios');
+const { githubToken, repo, branch } = require('../settings');
 
 module.exports = async (req, res) => {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ message: 'Method not allowed' });
+  }
+
   const { username, password } = req.body;
 
   if (!username || !password) {
-    return res.status(400).json({ message: 'Missing fields' });
+    return res.status(400).json({ message: 'Username dan password wajib' });
   }
 
-  const filePath = path.join(process.cwd(), 'user.json');
-  const users = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-
-  if (users.find(u => u.username === username)) {
-    return res.status(409).json({ message: 'Username already exists' });
-  }
-
-  users.push({ username, password, createdAt: new Date() });
-  fs.writeFileSync(filePath, JSON.stringify(users, null, 2));
-
-  // Push to GitHub
   try {
-    const url = `https://api.github.com/repos/${repo}/contents/user.json`;
-    const { data } = await axios.get(`${url}?ref=${branch}`, {
-      headers: { Authorization: `token ${githubToken}` }
-    });
+    // 1. Ambil file user.json dari GitHub
+    const url = `https://api.github.com/repos/${repo}/contents/user.json?ref=${branch}`;
+    const headers = { Authorization: `token ${githubToken}` };
 
-    const content = fs.readFileSync(filePath, 'utf8');
-    const encoded = Buffer.from(content).toString('base64');
+    const { data: file } = await axios.get(url, { headers });
 
+    // 2. Decode isi file
+    const content = JSON.parse(Buffer.from(file.content, 'base64').toString('utf-8'));
+
+    // 3. Cek duplikat
+    if (content.some(u => u.username === username)) {
+      return res.status(409).json({ message: 'Username sudah ada' });
+    }
+
+    // 4. Tambah user baru
+    content.push({ username, password, createdAt: new Date() });
+
+    // 5. Encode kembali
+    const newContent = Buffer.from(JSON.stringify(content, null, 2)).toString('base64');
+
+    // 6. Push ke GitHub
     await axios.put(url, {
       message: `Add user ${username}`,
-      content: encoded,
-      sha: data.sha,
+      content: newContent,
+      sha: file.sha,
       branch
-    }, {
-      headers: { Authorization: `token ${githubToken}` }
-    });
+    }, { headers });
 
-    res.json({ message: 'Account created & pushed to GitHub!' });
+    res.json({ message: 'Akun berhasil dibuat & tersimpan di GitHub!' });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'GitHub push failed' });
+    console.error(err.response?.data || err.message);
+    res.status(500).json({ message: 'Gagal simpan ke GitHub' });
   }
 };
